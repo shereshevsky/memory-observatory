@@ -1,0 +1,801 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Memory Observatory</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;1,400&display=swap">
+<style>
+  /* Layout: one full-height instrument (canvas dial with panels pinned to its corners), then a liner section that explains the encodings. Single dark look, by choice: the dial is a night-sky instrument like its predecessor. */
+  :root {
+    color-scheme: dark;
+    --void: #070912;
+    --void-2: #0C101E;
+    --vellum: #E8E3D5;
+    --faint: #8A8FA3;
+    --hairline: rgba(232, 227, 213, 0.12);
+    --accent: #5B8DB8;
+    --accent-bright: #9CC4E4;
+    --saffron: #E0A63B;
+    --key: #FFF7E6;
+    --display: "Playfair Display", "Didot", "Bodoni 72", Georgia, serif;
+    --body: Georgia, "Times New Roman", serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  html, body { margin: 0; padding: 0; background: var(--void); color: var(--vellum); }
+  body { font-family: var(--body); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+
+  #instrument {
+    position: relative; height: 100vh; min-height: 640px; max-height: 1000px; overflow: hidden;
+    background: radial-gradient(ellipse 120% 90% at 50% 46%, #0D1224 0%, var(--void) 62%);
+  }
+  #sky { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #sky.hit { cursor: pointer; }
+
+  .masthead { position: absolute; top: 28px; left: 32px; z-index: 3; pointer-events: none; max-width: 360px; }
+  .eyebrow { font-family: var(--mono); font-size: 10px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--faint); margin: 0 0 10px; }
+  .masthead h1 { font-family: var(--display); font-weight: 400; font-size: 42px; line-height: 1.02; margin: 0; letter-spacing: 0.01em; text-wrap: balance; }
+  .masthead h1 em { font-style: italic; }
+  .masthead .sub { font-family: var(--body); font-style: italic; font-size: 14px; color: var(--faint); margin: 12px 0 0; line-height: 1.5; max-width: 32ch; }
+
+  .stage { margin-top: 26px; max-width: 330px; }
+  .stage .k { font-family: var(--mono); font-size: 9px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--accent-bright); margin: 0 0 6px; }
+  .stage .t { font-family: var(--body); font-size: 14px; line-height: 1.5; color: var(--vellum); margin: 0; min-height: 3.2em; }
+  .stage .q { font-family: var(--display); font-style: italic; font-size: 17px; line-height: 1.35; color: var(--key); margin: 0 0 8px; }
+
+  .metrics { position: absolute; right: 32px; top: 50%; transform: translateY(-46%); z-index: 3; pointer-events: none; display: flex; flex-direction: column; gap: 16px; text-align: right; }
+  .metric .k { font-family: var(--mono); font-size: 9px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--faint); }
+  .metric .v { font-family: var(--mono); font-size: 24px; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; color: var(--vellum); line-height: 1.15; }
+  .metric .v .unit, .metric .v small { font-size: 11px; color: var(--faint); letter-spacing: 0.08em; }
+  .metric.hub .v { font-family: var(--display); font-size: 19px; font-style: italic; color: var(--accent-bright); }
+  .metric.cost .v { font-size: 15px; line-height: 1.4; }
+  .metric.cost .v b { font-weight: 400; color: var(--key); }
+
+  .transport { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 16px; background: color-mix(in srgb, var(--void-2) 82%, transparent); border: 1px solid var(--hairline); padding: 12px 18px; border-radius: 2px; backdrop-filter: blur(6px); width: min(680px, calc(100vw - 48px)); }
+  .transport button { appearance: none; background: none; border: 1px solid var(--hairline); color: var(--vellum); font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; width: 44px; height: 34px; cursor: pointer; border-radius: 2px; flex: none; transition: border-color 140ms ease, color 140ms ease; }
+  .transport button:hover { border-color: var(--accent); color: var(--accent-bright); }
+  .transport button:focus-visible, .legend button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .transport input[type="range"] { flex: 1; appearance: none; height: 2px; background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--fill, 0%), var(--hairline) var(--fill, 0%)); cursor: pointer; outline-offset: 6px; min-width: 0; }
+  .transport input[type="range"]::-webkit-slider-thumb { appearance: none; width: 13px; height: 13px; border-radius: 50%; background: var(--vellum); border: 2px solid var(--accent); box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 60%, transparent); }
+  .transport .readout { font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; color: var(--faint); min-width: 112px; text-align: right; font-variant-numeric: tabular-nums; flex: none; line-height: 1.4; }
+  .transport .readout b { color: var(--vellum); font-weight: 400; }
+
+  .legend { position: absolute; left: 32px; bottom: 30px; z-index: 3; display: flex; flex-direction: column; gap: 7px; }
+  .legend .row { display: flex; align-items: center; gap: 9px; }
+  .legend .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .legend .dash { width: 14px; height: 0; border-top: 2px solid var(--saffron); flex: none; }
+  .legend .lbl { font-family: var(--mono); font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--faint); }
+  .legend button { appearance: none; background: none; border: 1px solid var(--hairline); color: var(--faint); font-family: var(--mono); font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; padding: 7px 10px; border-radius: 2px; cursor: pointer; margin-top: 6px; text-align: left; }
+  .legend button:hover { color: var(--vellum); border-color: var(--accent); }
+  .legend button[aria-pressed="true"] { color: var(--key); border-color: var(--accent-bright); }
+
+  .demo-tag { position: absolute; right: 32px; top: 28px; z-index: 3; pointer-events: none; text-align: right; font-family: var(--mono); font-size: 9px; letter-spacing: 0.26em; text-transform: uppercase; color: var(--faint); opacity: 0.85; max-width: 300px; line-height: 1.8; }
+
+  .inspector { position: absolute; right: 32px; top: 76px; z-index: 5; width: 350px; max-height: calc(100% - 180px); overflow: auto; background: color-mix(in srgb, var(--void-2) 92%, transparent); border: 1px solid var(--hairline); border-top: 3px solid var(--accent); padding: 16px 18px 18px; border-radius: 2px; backdrop-filter: blur(6px); display: none; scrollbar-width: thin; }
+  .inspector.show { display: block; }
+  #instrument.inspecting .metrics, #instrument.inspecting .demo-tag { display: none; }
+  .inspector h2 { font-family: var(--display); font-weight: 400; font-size: 24px; line-height: 1.15; margin: 0 0 8px; letter-spacing: 0.005em; text-wrap: balance; }
+  .inspector h2.q { font-style: italic; font-size: 20px; color: var(--key); }
+  .inspector h3 { font-family: var(--mono); font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--faint); margin: 16px 0 8px; font-weight: 400; }
+  .inspector .close { position: absolute; top: 8px; right: 10px; appearance: none; background: none; border: 0; color: var(--faint); font-size: 20px; line-height: 1; cursor: pointer; padding: 4px 6px; }
+  .inspector .close:hover { color: var(--vellum); }
+  .inspector .desc, .inspector .text { font-family: var(--body); font-size: 14px; line-height: 1.55; color: var(--vellum); margin: 0 0 10px; }
+  .inspector .text { font-style: italic; color: var(--key); }
+  .inspector .facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 12px; }
+  .inspector .facts dt { font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); padding-top: 3px; }
+  .inspector .facts dd { margin: 0; font-family: var(--body); color: var(--vellum); font-size: 13px; }
+  .inspector .chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 10px 0 0; }
+  .inspector .chip { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; padding: 3px 6px; border: 1px solid var(--hairline); border-radius: 2px; color: var(--faint); }
+  .inspector .chip.now { color: var(--key); border-color: var(--accent-bright); }
+  .inspector .chip.later { opacity: 0.4; }
+  .inspector ul { list-style: none; margin: 0; padding: 0; }
+  .inspector li { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--hairline); font-size: 13px; }
+  .inspector li.later { opacity: 0.4; }
+  .inspector li .dir { font-family: var(--mono); color: var(--faint); font-size: 11px; }
+  .inspector li .rel { display: block; font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); margin-top: 2px; }
+  .inspector li .ch { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; color: var(--faint); white-space: nowrap; }
+  .inspector li.msg { grid-template-columns: 1fr; }
+  .inspector li.msg .meta { font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); margin-bottom: 3px; }
+  .inspector li.msg .meta i { color: var(--saffron); font-style: normal; }
+  .inspector button.link { appearance: none; background: none; border: 0; padding: 0; color: var(--vellum); font-family: var(--body); font-size: 13px; cursor: pointer; text-align: left; border-bottom: 1px solid transparent; }
+  .inspector button.link:hover { color: var(--accent-bright); border-bottom-color: var(--accent-bright); }
+  .inspector .jump { appearance: none; background: none; border: 1px solid var(--hairline); color: var(--vellum); font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; padding: 8px 10px; border-radius: 2px; cursor: pointer; margin-top: 12px; }
+  .inspector .jump:hover { border-color: var(--accent); color: var(--accent-bright); }
+
+  .liner { max-width: 1040px; margin: 0 auto; padding: 64px 32px 72px; }
+  .liner h2 { font-family: var(--display); font-weight: 400; font-size: 32px; margin: 0 0 6px; letter-spacing: 0.005em; text-wrap: balance; }
+  .liner .lede { font-family: var(--body); font-style: italic; color: var(--faint); margin: 0 0 36px; font-size: 16px; }
+  .liner .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 28px 32px; }
+  .liner h3 { font-family: var(--display); font-weight: 400; font-size: 20px; margin: 0 0 8px; }
+  .liner p { font-size: 14px; line-height: 1.6; margin: 0; color: var(--vellum); }
+  .liner .col { min-width: 0; }
+  .liner .replay { margin-top: 44px; border-top: 1px solid var(--hairline); padding-top: 28px; }
+  .liner ol { margin: 10px 0 0; padding-left: 20px; font-size: 14px; line-height: 1.6; }
+  .liner ol li { margin-bottom: 6px; }
+  .liner a { color: var(--accent-bright); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--accent-bright) 40%, transparent); }
+  .coda { margin-top: 40px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--faint); line-height: 2; }
+
+  @media (max-width: 760px) {
+    #instrument { min-height: 560px; }
+    .masthead { max-width: 230px; }
+    .masthead h1 { font-size: 30px; }
+    .masthead .sub { display: none; }
+    .stage { margin-top: 14px; max-width: 230px; }
+    .stage .t { font-size: 12px; }
+    .metrics, .demo-tag { display: none; }
+    .legend { bottom: 92px; }
+    .legend .row:not(.keep) { display: none; }
+    .inspector { left: 16px; right: 16px; width: auto; top: auto; bottom: 90px; max-height: 46%; }
+    .liner { padding: 40px 16px 56px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .transport button, .legend button { transition: none; } }
+
+  /* poster mode (#poster): a still of the instrument for a title image */
+  #instrument.poster { height: 100vh; min-height: 0; max-height: none; }
+  #instrument.poster .masthead, #instrument.poster .metrics, #instrument.poster .transport,
+  #instrument.poster .legend, #instrument.poster .demo-tag, #instrument.poster .inspector, body.poster .liner { display: none; }
+</style>
+
+<section id="instrument">
+  <canvas id="sky"></canvas>
+
+  <header class="masthead">
+    <p class="eyebrow">Temporal knowledge graphs &middot; No. 4</p>
+    <h1>The Memory<br><em>Observatory</em></h1>
+    <p class="sub">A team's conversation, read the way a query-time memory reads it. Time wraps the dial; the question is the needle.</p>
+    <div class="stage" aria-live="polite">
+      <p class="k" id="stage-k">Building memory</p>
+      <p class="q" id="stage-q" hidden></p>
+      <p class="t" id="stage-t">Messages arrive around the dial. Entities are born at their first mention and sink toward the centre as they gather relations. At the end of the dial a question fires.</p>
+    </div>
+  </header>
+
+  <p class="demo-tag" id="demotag">Demo conversation &mdash; synthetic, narratively anchored</p>
+
+  <aside class="metrics" id="metrics-build" aria-live="off">
+    <div class="metric"><div class="k">Messages</div><div class="v" id="m-msg">0</div></div>
+    <div class="metric"><div class="k">Entities</div><div class="v" id="m-ent">0</div></div>
+    <div class="metric"><div class="k">Chords</div><div class="v" id="m-rel">0</div></div>
+    <div class="metric hub"><div class="k">Gravitational centre</div><div class="v" id="m-hub">&mdash;</div></div>
+  </aside>
+  <aside class="metrics" id="metrics-query" aria-live="off" hidden>
+    <div class="metric"><div class="k">Lexical seeds</div><div class="v" id="q-seeds">&mdash;</div></div>
+    <div class="metric"><div class="k">Episode</div><div class="v" id="q-episode">&mdash;</div></div>
+    <div class="metric"><div class="k">Forest</div><div class="v" id="q-forest">&mdash;</div></div>
+    <div class="metric"><div class="k">Forest tokens</div><div class="v" id="q-tokens">&mdash;</div></div>
+    <div class="metric cost"><div class="k">Cost of this answer</div><div class="v" id="q-cost">&mdash;</div></div>
+  </aside>
+
+  <aside class="inspector" id="inspector" aria-live="polite"></aside>
+
+  <div class="legend" id="legend"></div>
+
+  <div class="transport">
+    <button id="play" aria-label="Play or pause">&#9654;</button>
+    <input type="range" id="scrub" min="0" max="1000" value="0" step="1" aria-label="Progress through the conversation and the query" />
+    <div class="readout"><b id="ch-label">&mdash;</b><br><span id="ch-pct">0%</span></div>
+  </div>
+</section>
+
+<section class="liner">
+  <h2>How to read the instrument</h2>
+  <p class="lede">Three encodings from the Narrative Observatory, and one new one.</p>
+  <div class="cols">
+    <div class="col">
+      <h3>Time is the dial</h3>
+      <p>Four months of a five-person team's chat run clockwise from the top, one revolution from 1 January to 30 April. Every message is a grain on the rim. The inner ring is the pulse: messages per day.</p>
+    </div>
+    <div class="col">
+      <h3>Connection is gravity</h3>
+      <p>Each entity the conversation names is a star, placed at the angle of its first mention. Relations pull it toward the centre. This star graph is what a write-time memory system maintains: every message pays an extraction call, every correction a merge.</p>
+    </div>
+    <div class="col">
+      <h3>The needle is the query</h3>
+      <p>When the dial completes, a question fires. The instrument replays a query-time retrieval: lexical seeds scatter across the dial, time clustering finds the dense interval, the hands swing to frame it, one labelling pass keeps the messages that matter and links them, and the forest is drawn into the answer.</p>
+    </div>
+    <div class="col">
+      <h3>The cost is the point</h3>
+      <p>Nothing was paid when the messages arrived. The structure is built once, at the moment of the question, over the window the clock found. Toggle the write-time graph to see what the alternative keeps lit all the time.</p>
+    </div>
+  </div>
+  <div class="replay">
+    <h3>What the replay follows</h3>
+    <p>The four stages are the method of <em>Temporal Evidence Forests for Long-Horizon Multi-Party Conversational Memory</em> (T-Mem, <a href="https://arxiv.org/abs/2610.12874">arXiv 2610.12874</a>), computed here on the demo data without a model:</p>
+    <ol>
+      <li><strong>Seeds.</strong> BM25 over the raw messages for the query's terms; the top fourteen hits. Some land in the right week, some are strays from January and April.</li>
+      <li><strong>Episode.</strong> DBSCAN over the seeds' timestamps. The densest interval becomes the window; the strays fall out as noise.</li>
+      <li><strong>Forest.</strong> Every message in the window is labelled Key, Support or Irrelevant (in T-Mem an LLM does this; here the labels are annotated), then linked: an Update link where a later message changes an earlier one, Expand links where context supports a key message.</li>
+      <li><strong>Answer.</strong> The kept messages are serialised within an 8,192-token budget and cited by id.</li>
+    </ol>
+  </div>
+  <p class="coda" id="coda">Demo conversation &middot; synthetic and narratively anchored &middot; previous instrument: <a href="https://shereshevsky.github.io/temporal-narrative-evolution/">The Narrative Observatory</a></p>
+</section>
+
+<script>
+"use strict";
+const DATA = __DATA__;
+
+/* ---------- palette ---------- */
+const T = { accent: "#5B8DB8", bright: "#9CC4E4", warn: "#E0A63B", key: "#FFF7E6" };
+const FAMILY = {
+  person:   { types: ["PERSON"], label: "People" },
+  system:   { types: ["SYSTEM", "DOCUMENT"], label: "Systems & documents" },
+  decision: { types: ["DECISION", "MEETING"], label: "Decisions & meetings" },
+  event:    { types: ["RELEASE", "INCIDENT", "ROLE"], label: "Releases, incidents, hiring" },
+};
+function familyOf(label) {
+  for (const [fam, def] of Object.entries(FAMILY)) if (def.types.includes(label)) return fam;
+  return "system";
+}
+function famColor(fam) {
+  const mix = {
+    person:   [T.accent, "#FFFFFF", 0.12],
+    system:   ["#C9C4B6", T.accent, 0.30],
+    decision: ["#B49AE8", T.accent, 0.35],
+    event:    ["#E0A63B", T.accent, 0.30],
+  }[fam];
+  return blend(mix[0], mix[1], mix[2]);
+}
+function blend(h1, h2, t) {
+  const a = hex(h1), b = hex(h2);
+  return `rgb(${Math.round(a[0]+(b[0]-a[0])*t)},${Math.round(a[1]+(b[1]-a[1])*t)},${Math.round(a[2]+(b[2]-a[2])*t)})`;
+}
+function hex(h) { const v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; }
+function hash01(str, salt) {
+  let h = 2166136261 >>> 0; const s = str + "|" + salt;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return ((h >>> 8) % 100000) / 100000;
+}
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const ease = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+const fmt = n => n.toLocaleString("en-GB");
+
+/* ---------- model ---------- */
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const POSTER = location.hash.startsWith("#poster");
+const C = DATA.days.length;          // days on the dial
+const S = 4;                         // retrieval stages after the dial
+const Q = DATA.query;
+const ang = d => (d / C) * Math.PI * 2 - Math.PI / 2;
+const msgById = new Map();
+const MS = DATA.messages.map(m => { const o = { ...m, angle: ang(m.d), day: Math.floor(m.d) }; msgById.set(m.id, o); return o; });
+const WIN = new Set(Q.window);
+const SEEDS = Q.seeds.map(s => ({ ...s, m: msgById.get(s.id), inside: WIN.has(s.id) }));
+const KEPT = Q.window.map(id => msgById.get(id)).filter(m => Q.labels[m.id] !== "irrelevant");
+const KEYS = KEPT.filter(m => Q.labels[m.id] === "key");
+const LINKS = Q.links.map(l => ({ ...l, a: msgById.get(l.frm), b: msgById.get(l.to) }));
+const AS = ang(Q.episode.start_d), AE = ang(Q.episode.end_d);
+const dayLabel = i => DATA.days[clamp(i, 0, C - 1)].label;
+const who = id => (DATA.entities.find(e => e.id === id) || { name: id }).name;
+
+let state = null;
+function buildModel() {
+  const nodesById = new Map();
+  const nodes = DATA.entities.map(e => {
+    const fam = familyOf(e.label);
+    const n = {
+      id: e.id, name: e.name, label: e.label, fam, birth: Math.floor(e.first_d), birthF: e.first_d,
+      apps: new Set(e.appearances), deg: 0, degNow: 0, seen: false,
+      angle: ang(e.first_d), rBirth: 0.80 + 0.10 * hash01(e.id, "rj"), rNow: 1, rTarget: 1, flare: 0,
+      color: famColor(fam), desc: (e.properties && e.properties.description) || "",
+    };
+    nodesById.set(e.id, n); return n;
+  });
+  const links = [];
+  for (const r of DATA.relations) {
+    const s = nodesById.get(r.source_id), t = nodesById.get(r.target_id);
+    if (!s || !t || s === t) continue;
+    s.deg++; t.deg++;
+    links.push({ s, t, label: r.label, birth: Math.floor(r.first_d), birthF: Math.max(r.first_d, s.birthF, t.birthF),
+                 apps: new Set(r.appearances), born: false, drawT: 0, flare: 0 });
+  }
+  const maxDeg = Math.max(1, ...nodes.map(n => n.deg));
+  const ekg = new Array(C).fill(0);
+  for (const m of MS) ekg[m.day]++;
+  const ekgMax = Math.max(1, ...ekg);
+  return { nodes, links, nodesById, maxDeg, ekg, ekgMax, P: 0, playing: false };
+}
+
+/* ---------- canvas ---------- */
+const canvas = document.getElementById("sky");
+const ctx = canvas.getContext("2d");
+let W = 0, H = 0, DPR = 1, CX = 0, CY = 0, R = 0;
+function resize() {
+  DPR = Math.min(devicePixelRatio || 1, 2);
+  const rect = canvas.parentElement.getBoundingClientRect();
+  W = rect.width; H = rect.height;
+  canvas.width = Math.max(1, Math.round(W * DPR)); canvas.height = Math.max(1, Math.round(H * DPR));
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  CX = W / 2; CY = POSTER ? H * 0.5 : H * 0.52;
+  R = POSTER ? Math.min(W * 0.46, H * 0.40) : Math.min(W * 0.33, H * 0.40);
+  if (state) draw();
+}
+addEventListener("resize", resize);
+
+let backStars = [];
+for (let i = 0; i < 140; i++) backStars.push({ x: hash01("bs" + i, "x"), y: hash01("bs" + i, "y"), a: 0.04 + 0.10 * hash01("bs" + i, "a"), r: 0.4 + 0.9 * hash01("bs" + i, "r"), tw: hash01("bs" + i, "t") * Math.PI * 2 });
+
+const pol = (a, r) => [CX + Math.cos(a) * r, CY + Math.sin(a) * r];
+function nodeRadius(n) { return 2.1 + 5.4 * Math.sqrt(n.degNow / state.maxDeg); }
+function nodePos(n) { return pol(n.angle, R * n.rNow); }
+function targetR(n) { const g = Math.sqrt(n.degNow / state.maxDeg); return n.rBirth - (n.rBirth - 0.20) * g; }
+const stageT = k => clamp(state.P - C - (k - 1), 0, 1);
+
+function comet(x1, y1, cx, cy, x2, y2, T) {
+  if (T >= 1) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.quadraticCurveTo(cx, cy, x2, y2); ctx.stroke(); return; }
+  const seg = 24; ctx.beginPath();
+  for (let k = 0; k <= seg; k++) {
+    const u = (k / seg) * T;
+    const x = (1-u)*(1-u)*x1 + 2*(1-u)*u*cx + u*u*x2, y = (1-u)*(1-u)*y1 + 2*(1-u)*u*cy + u*u*y2;
+    k === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  const u = T, hx = (1-u)*(1-u)*x1 + 2*(1-u)*u*cx + u*u*x2, hy = (1-u)*(1-u)*y1 + 2*(1-u)*u*cy + u*u*y2;
+  ctx.save(); ctx.fillStyle = "#FFFFFF"; ctx.globalAlpha = 0.9; ctx.beginPath(); ctx.arc(hx, hy, 1.6, 0, 7); ctx.fill(); ctx.restore();
+}
+
+function draw(nowMs = 0) {
+  const st = state;
+  ctx.clearRect(0, 0, W, H);
+  const p = Math.min(st.P, C), inQuery = st.P > C;
+  const t1 = stageT(1), t2 = stageT(2), t3 = stageT(3), t4 = stageT(4);
+  const mono = getComputedStyle(document.documentElement).getPropertyValue("--mono");
+  const display = getComputedStyle(document.documentElement).getPropertyValue("--display");
+
+  for (const s of backStars) {
+    const tw = reduceMotion ? 1 : 0.75 + 0.25 * Math.sin(nowMs / 1700 + s.tw);
+    ctx.globalAlpha = s.a * tw; ctx.fillStyle = "#E8E3D5";
+    ctx.beginPath(); ctx.arc(s.x * W, s.y * H, s.r, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  /* ---- dial: ring, day ticks, month labels ---- */
+  ctx.strokeStyle = "rgba(232,227,213,0.14)"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(CX, CY, R * 0.97, 0, 7); ctx.stroke();
+  ctx.font = `10px ${mono}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (let i = 0; i < C; i++) {
+    const d = DATA.days[i], a = ang(i), passed = i < p;
+    const major = !!d.month, mid = d.monday;
+    ctx.strokeStyle = passed ? `rgba(232,227,213,${major ? 0.55 : mid ? 0.30 : 0.14})` : `rgba(232,227,213,${major ? 0.18 : mid ? 0.10 : 0.05})`;
+    const r1 = R * (major ? 0.94 : mid ? 0.955 : 0.962), r2 = R * (major ? 1.0 : 0.985);
+    const [x1, y1] = pol(a, r1), [x2, y2] = pol(a, r2);
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    if (major) {
+      ctx.fillStyle = passed ? "rgba(232,227,213,0.8)" : "rgba(138,143,163,0.7)";
+      const [lx, ly] = pol(a, R * 1.06); ctx.fillText(d.month.toUpperCase(), lx, ly);
+    }
+  }
+
+  /* ---- message grain, revealed up to p ---- */
+  ctx.strokeStyle = "rgba(232,227,213,0.16)"; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (const m of MS) {
+    if (m.d > p) break;
+    const [x1, y1] = pol(m.angle, R * 0.972), [x2, y2] = pol(m.angle, R * 0.986);
+    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+  }
+  ctx.stroke();
+
+  /* progress arc */
+  const sweepA = ang(p);
+  ctx.strokeStyle = T.accent; ctx.lineWidth = 1.6; ctx.globalAlpha = inQuery ? 0.45 : 0.9;
+  ctx.beginPath(); ctx.arc(CX, CY, R * 0.97, -Math.PI / 2, sweepA); ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  /* ---- EKG ring: messages per day ---- */
+  ctx.save();
+  ctx.strokeStyle = T.bright; ctx.lineWidth = 1.1; ctx.shadowColor = T.accent; ctx.shadowBlur = 6; ctx.globalAlpha = inQuery ? 0.45 : 0.78;
+  ctx.beginPath();
+  const steps = Math.floor((p / C) * 720);
+  for (let k = 0; k <= steps; k++) {
+    const f = k / 720, a = f * Math.PI * 2 - Math.PI / 2;
+    const ci = Math.min(C - 1, Math.floor(f * C)), cf = f * C - ci;
+    const v0 = st.ekg[ci] / st.ekgMax, v1 = st.ekg[Math.min(C - 1, ci + 1)] / st.ekgMax;
+    const v = v0 + (v1 - v0) * (cf > 0.8 ? (cf - 0.8) / 0.2 : 0);
+    const [x, y] = pol(a, R * (0.875 + 0.07 * v));
+    k === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke(); ctx.restore();
+
+  /* ---- sweep hand while building ---- */
+  if (p > 0 && p < C) {
+    const [ex, ey] = pol(sweepA, R);
+    const grad = ctx.createLinearGradient(CX, CY, ex, ey);
+    grad.addColorStop(0, "rgba(232,227,213,0)"); grad.addColorStop(1, "rgba(232,227,213,0.55)");
+    ctx.strokeStyle = grad; ctx.lineWidth = 1;
+    const [hx, hy] = pol(sweepA, R * 0.965);
+    ctx.beginPath(); ctx.moveTo(CX, CY); ctx.lineTo(hx, hy); ctx.stroke();
+  }
+
+  /* ---- entity chords and stars (the write-time graph) ---- */
+  const gdim = inQuery && !compare ? 0.30 : 1;
+  const dayNow = Math.min(C - 1, Math.floor(p));
+  const focus = selNode && selNode.birthF <= p ? selNode : null;
+  const neighbors = new Set();
+  if (focus) for (const l of st.links) if (l.born) { if (l.s === focus) neighbors.add(l.t); if (l.t === focus) neighbors.add(l.s); }
+  ctx.save(); ctx.globalCompositeOperation = "lighter";
+  for (const l of st.links) {
+    if (!l.born) continue;
+    const [x1, y1] = nodePos(l.s), [x2, y2] = nodePos(l.t);
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, cx = CX + (mx - CX) * 0.35, cy = CY + (my - CY) * 0.35;
+    const active = l.apps.has(dayNow);
+    const settled = 0.05 + Math.min(0.13, l.apps.size * 0.022);
+    let alpha = Math.min(1, settled + l.flare * 0.85 + (active ? 0.10 : 0));
+    const onFocus = focus && (l.s === focus || l.t === focus);
+    if (focus) alpha = onFocus ? Math.min(1, alpha + 0.5) : alpha * 0.28;
+    ctx.strokeStyle = onFocus || l.flare > 0.02 ? T.bright : T.accent;
+    ctx.globalAlpha = alpha * gdim; ctx.lineWidth = onFocus ? 1.3 : (l.flare > 0.02 ? 1.4 : 0.7);
+    comet(x1, y1, cx, cy, x2, y2, l.drawT);
+  }
+  ctx.restore();
+
+  const labelBudget = [];
+  for (const n of st.nodes) {
+    if (n.birthF > p) continue;
+    const [x, y] = nodePos(n), rad = nodeRadius(n), active = n.apps.has(dayNow);
+    ctx.save(); ctx.globalCompositeOperation = "lighter";
+    if (n.flare > 0.02 || active) { ctx.shadowColor = T.bright; ctx.shadowBlur = 8 + 22 * n.flare; }
+    ctx.fillStyle = n.color;
+    ctx.globalAlpha = (0.55 + 0.45 * Math.min(1, n.degNow / (st.maxDeg * 0.5)) + n.flare * 0.4) * gdim;
+    if (focus && n !== focus && !neighbors.has(n)) ctx.globalAlpha *= 0.45;
+    ctx.beginPath(); ctx.arc(x, y, rad + n.flare * 2.5, 0, 7); ctx.fill();
+    if (n.degNow / st.maxDeg > 0.30) { ctx.fillStyle = T.key; ctx.globalAlpha = 0.85 * gdim; ctx.beginPath(); ctx.arc(x, y, rad * 0.42, 0, 7); ctx.fill(); }
+    ctx.restore();
+    if (n.degNow >= st.maxDeg * 0.22 && n.degNow > 2) labelBudget.push([n, x, y, rad]);
+  }
+  if (focus) {
+    const [x, y] = nodePos(focus), rad = nodeRadius(focus);
+    ctx.save(); ctx.strokeStyle = T.bright; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.95; ctx.shadowColor = T.bright; ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(x, y, rad + 6, 0, 7); ctx.stroke(); ctx.restore();
+  }
+
+  /* ---- retrieval overlays ---- */
+  if (inQuery) {
+    /* the query at the top of the dial */
+    const [qx, qy] = pol(-Math.PI / 2, R * 0.979);
+    ctx.save(); ctx.translate(qx, qy); ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = T.key; ctx.shadowColor = T.bright; ctx.shadowBlur = 14 + 8 * Math.sin(nowMs / 400);
+    ctx.fillRect(-4.5, -4.5, 9, 9); ctx.restore();
+    ctx.fillStyle = "rgba(232,227,213,0.85)"; ctx.font = `10px ${mono}`; ctx.textAlign = "center";
+    const [qlx, qly] = pol(-Math.PI / 2, R * 1.15); ctx.fillText("QUERY", qlx, qly);
+
+    /* stage 1: lexical seeds */
+    const nSeed = SEEDS.length;
+    ctx.save(); ctx.globalCompositeOperation = "lighter";
+    SEEDS.forEach((s, i) => {
+      if (t1 * nSeed <= i) return;
+      const a = s.inside ? 1 : 1 - 0.78 * t2;
+      const [x, y] = pol(s.m.angle, R * 0.979);
+      ctx.fillStyle = T.bright; ctx.shadowColor = T.bright; ctx.shadowBlur = 12; ctx.globalAlpha = a;
+      ctx.beginPath(); ctx.arc(x, y, s.inside ? 2.6 : 2.2, 0, 7); ctx.fill();
+      const [x1, y1] = pol(s.m.angle, R * 0.99), [x2, y2] = pol(s.m.angle, R * 1.03);
+      ctx.strokeStyle = T.bright; ctx.lineWidth = 1; ctx.globalAlpha = a * 0.7;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    });
+    ctx.restore();
+
+    /* stage 2: the episode and the hands */
+    if (t2 > 0) {
+      ctx.save();
+      ctx.fillStyle = T.accent; ctx.globalAlpha = 0.14 * t2;
+      ctx.beginPath(); ctx.arc(CX, CY, R * 0.995, AS, AE); ctx.arc(CX, CY, R * 0.56, AE, AS, true); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = T.bright; ctx.lineWidth = 2; ctx.globalAlpha = 0.9 * t2; ctx.shadowColor = T.bright; ctx.shadowBlur = 8;
+      ctx.beginPath(); ctx.arc(CX, CY, R * 0.97, AS, AE); ctx.stroke();
+      ctx.restore();
+      const am = (AS + AE) / 2, [lx, ly] = pol(am, R * 1.13);
+      ctx.fillStyle = `rgba(232,227,213,${0.9 * t2})`; ctx.font = `10px ${mono}`; ctx.textAlign = Math.cos(am) < -0.2 ? "right" : Math.cos(am) > 0.2 ? "center" : "center";
+      ctx.fillText(`${Q.episode.start_label} TO ${Q.episode.end_label}`.toUpperCase(), lx, ly - 7);
+      ctx.fillText(`${Q.episode.messages} MESSAGES`, lx, ly + 7);
+    }
+    const e = ease(t2);
+    const hands = [[-Math.PI / 2 + (AS + Math.PI / 2) * e, 0.50, 2.6], [-Math.PI / 2 + (AE + Math.PI / 2) * e, 0.78, 1.5]];
+    ctx.save(); ctx.strokeStyle = "rgba(232,227,213,0.9)"; ctx.lineCap = "round"; ctx.shadowColor = "rgba(0,0,0,0.6)"; ctx.shadowBlur = 4;
+    for (const [a, len, w] of hands) {
+      const [x2, y2] = pol(a, R * len), [x0, y0] = pol(a + Math.PI, R * 0.08);
+      ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x2, y2); ctx.stroke();
+    }
+    ctx.restore();
+    ctx.fillStyle = T.key; ctx.beginPath(); ctx.arc(CX, CY, 3.6, 0, 7); ctx.fill();
+    ctx.strokeStyle = T.accent; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(CX, CY, 6, 0, 7); ctx.stroke();
+
+    /* stage 3: label, link, serialise */
+    if (t3 > 0) {
+      const nK = KEPT.length;
+      ctx.save(); ctx.globalCompositeOperation = "lighter";
+      KEPT.forEach((m, i) => {
+        if (t3 * nK / 0.4 <= i) return;
+        const key = Q.labels[m.id] === "key";
+        const [x, y] = pol(m.angle, R * 0.979);
+        ctx.fillStyle = key ? T.key : T.bright; ctx.shadowColor = key ? T.key : T.bright; ctx.shadowBlur = key ? 16 : 8;
+        ctx.globalAlpha = key ? 1 : 0.85;
+        ctx.beginPath(); ctx.arc(x, y, key ? 3.4 : 2.1, 0, 7); ctx.fill();
+      });
+      const lt = clamp((t3 - 0.25) / 0.35, 0, 1);
+      for (const l of LINKS) {
+        const [x1, y1] = pol(l.a.angle, R * 0.979), [x2, y2] = pol(l.b.angle, R * 0.979);
+        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, cx = CX + (mx - CX) * 0.72, cy = CY + (my - CY) * 0.72;
+        ctx.strokeStyle = l.type === "update" ? T.warn : T.bright; ctx.lineWidth = l.type === "update" ? 1.8 : 1;
+        ctx.globalAlpha = l.type === "update" ? 0.95 : 0.65; ctx.shadowBlur = 0;
+        comet(x1, y1, cx, cy, x2, y2, lt);
+      }
+      const ft = clamp((t3 - 0.55) / 0.45, 0, 1);
+      for (const m of KEYS) {
+        const [x1, y1] = pol(m.angle, R * 0.979);
+        const mx = (x1 + qx) / 2, my = (y1 + qy) / 2, cx = CX + (mx - CX) * 0.18, cy = CY + (my - CY) * 0.18;
+        ctx.strokeStyle = T.bright; ctx.lineWidth = 1.3; ctx.globalAlpha = 0.9; ctx.shadowColor = T.bright; ctx.shadowBlur = 6;
+        comet(x1, y1, cx, cy, qx, qy, ft);
+      }
+      ctx.restore();
+    }
+    if (selMsg) {
+      const [x, y] = pol(selMsg.angle, R * 0.979);
+      ctx.save(); ctx.strokeStyle = T.key; ctx.lineWidth = 1.5; ctx.shadowColor = T.key; ctx.shadowBlur = 12;
+      ctx.beginPath(); ctx.arc(x, y, 8, 0, 7); ctx.stroke(); ctx.restore();
+    }
+  }
+
+  /* ---- labels ---- */
+  labelBudget.sort((a, b) => b[0].degNow - a[0].degNow);
+  const want = new Set();
+  if (focus) { want.add(focus); for (const m of neighbors) want.add(m); }
+  if (hoverNode && hoverNode.birthF <= p) want.add(hoverNode);
+  const forced = [...want].map(m => { const [x, y] = nodePos(m); return [m, x, y, nodeRadius(m)]; });
+  const queue = forced.slice(0, 16).concat(labelBudget.filter(([m]) => !want.has(m)).slice(0, focus ? 4 : (inQuery && !compare ? 3 : 9)));
+  ctx.font = `italic 13px ${display}`; ctx.textBaseline = "middle";
+  const placed = [];
+  for (const [n, x, y, rad] of queue) {
+    const side = Math.cos(n.angle) >= 0 ? 1 : -1, lx = x + (rad + 7) * side, ly = y - rad - 4;
+    if (placed.some(([px, py]) => Math.abs(px - lx) < 74 && Math.abs(py - ly) < 15)) continue;
+    placed.push([lx, ly]);
+    ctx.textAlign = side > 0 ? "left" : "right";
+    ctx.globalAlpha = want.has(n) ? 1 : gdim;
+    ctx.fillStyle = "rgba(7,9,18,0.55)"; ctx.fillText(n.name, lx + 1, ly + 1);
+    ctx.fillStyle = "#EFEADF"; ctx.fillText(n.name, lx, ly);
+  }
+  ctx.globalAlpha = 1;
+
+  /* centre glow */
+  const totalBorn = st.links.reduce((s, l) => s + (l.born ? 1 : 0), 0);
+  const glow = ctx.createRadialGradient(CX, CY, 0, CX, CY, R * 0.5);
+  const gA = Math.min(0.16, totalBorn / Math.max(1, st.links.length) * 0.16 + 0.02) * (inQuery ? 0.6 : 1);
+  glow.addColorStop(0, `rgba(${hex(T.accent).join(",")},${gA})`); glow.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = glow; ctx.fillRect(CX - R, CY - R, R * 2, R * 2);
+}
+
+/* ---------- clock ---------- */
+let lastMs = 0, raf = 0;
+const SECONDS_PER_REVOLUTION = 30, SECONDS_PER_STAGE = 3.2;
+let playAnchorMs = 0, playAnchorP = 0;
+function tick(nowMs) {
+  raf = requestAnimationFrame(tick);
+  const dt = Math.min(100, nowMs - lastMs) / 1000; lastMs = nowMs;
+  const st = state;
+  if (st.playing) {
+    const el = (nowMs - playAnchorMs) / 1000;
+    const buildLeft = Math.max(0, C - playAnchorP) * SECONDS_PER_REVOLUTION / C;
+    st.P = el < buildLeft ? playAnchorP + el * C / SECONDS_PER_REVOLUTION
+                          : Math.max(C, playAnchorP) + (el - buildLeft) / SECONDS_PER_STAGE;
+    if (st.P >= C + S) { st.P = C + S; setPlaying(false); }
+    syncScrub();
+  }
+  advanceModel(dt);
+  draw(nowMs);
+  updateReadouts();
+  if (stageT(4) > 0.15 && !answerShown && !selNode && !selMsg) { answerShown = true; showAnswer(); }
+}
+function advanceModel(dt) {
+  const st = state, p = Math.min(st.P, C);
+  for (const n of st.nodes) n.degNow = 0;
+  for (const n of st.nodes) {
+    if (n.birthF <= p && !n.seen) { n.seen = true; n.flare = Math.max(n.flare, 1); n.rNow = n.rBirth; }
+    else if (n.birthF > p && n.seen) { n.seen = false; n.flare = 0; }
+  }
+  for (const l of st.links) {
+    const shouldBeBorn = l.birthF <= p;
+    if (shouldBeBorn) { l.s.degNow++; l.t.degNow++; }
+    if (shouldBeBorn && !l.born) { l.born = true; l.drawT = reduceMotion ? 1 : 0.001; l.flare = 1; l.s.flare = Math.max(l.s.flare, 0.9); l.t.flare = Math.max(l.t.flare, 0.9); }
+    else if (!shouldBeBorn && l.born) { l.born = false; l.drawT = 0; l.flare = 0; }
+    if (l.born && l.drawT < 1) l.drawT = Math.min(1, l.drawT + dt * 2.4);
+    l.flare = Math.max(0, l.flare - dt * 1.3);
+  }
+  for (const n of st.nodes) {
+    n.rTarget = targetR(n);
+    const k = reduceMotion ? 1 : Math.min(1, dt * 3.2);
+    n.rNow += (n.rTarget - n.rNow) * k;
+    n.flare = Math.max(0, n.flare - dt * 1.6);
+  }
+}
+
+/* ---------- readouts ---------- */
+const $ = id => document.getElementById(id);
+const STAGES = [
+  ["Seeds", `BM25 over the raw messages for "${Q.terms.join('", "')}". ${Q.seeds.length} hits light up around the dial; ${Q.seeds.length - Q.episode.seeds_inside} of them are strays from other months.`],
+  ["Episode", `DBSCAN over the seeds' timestamps. The dense interval is ${Q.episode.start_label} to ${Q.episode.end_label}: ${Q.episode.messages} messages. The strays fall out as noise, and the hands swing to frame the window.`],
+  ["Forest", `One labelling pass over the window: ${Q.counts.key} key, ${Q.counts.support} support, ${Q.counts.irrelevant} dropped. An Update link marks the changed cutover date; Expand links attach the context. The key messages are drawn into the query.`],
+  ["Answer", "The forest is serialised, well inside the 8,192-token budget, and answered with message ids as citations. Nothing was built when the messages arrived."],
+];
+function updateReadouts() {
+  const st = state, p = Math.min(st.P, C), inQuery = st.P > C;
+  $("metrics-build").hidden = inQuery; $("metrics-query").hidden = !inQuery;
+  if (!inQuery) {
+    let msgs = 0; for (const m of MS) { if (m.d > p) break; msgs++; }
+    let ents = 0, maxDeg = 0, hub = null;
+    for (const n of st.nodes) if (n.birthF <= p) { ents++; if (n.degNow > maxDeg) { maxDeg = n.degNow; hub = n; } }
+    $("m-msg").textContent = fmt(msgs); $("m-ent").textContent = ents;
+    $("m-rel").textContent = st.links.reduce((s, l) => s + (l.born ? 1 : 0), 0);
+    $("m-hub").textContent = hub && maxDeg > 0 ? hub.name : "—";
+    const di = Math.min(C - 1, Math.floor(p));
+    $("ch-label").textContent = p <= 0 ? "1 Jan" : `Day ${di + 1} · ${dayLabel(di)}`;
+    $("ch-pct").textContent = Math.round((p / C) * 100) + "% of the dial";
+    $("stage-k").textContent = "Building memory"; $("stage-q").hidden = true;
+    $("stage-t").textContent = "Messages arrive around the dial. Entities are born at their first mention and sink toward the centre as they gather relations. At the end of the dial a question fires.";
+  } else {
+    const k = Math.min(S, Math.floor(st.P - C) + 1), t = stageT(k);
+    $("stage-k").textContent = `Query · stage ${k} of ${S} · ${STAGES[k - 1][0]}`;
+    $("stage-q").hidden = false; $("stage-q").textContent = `“${Q.text}”`;
+    $("stage-t").textContent = STAGES[k - 1][1];
+    $("ch-label").textContent = `${STAGES[k - 1][0]}`;
+    $("ch-pct").textContent = `stage ${k} · ${Math.round(t * 100)}%`;
+    const t1 = stageT(1), t2 = stageT(2), t3 = stageT(3);
+    const nSeed = Math.min(Q.seeds.length, Math.ceil(t1 * Q.seeds.length));
+    $("q-seeds").innerHTML = `${nSeed}` + (t2 > 0 ? ` <small>· ${Q.seeds.length - Q.episode.seeds_inside} stray</small>` : "");
+    $("q-episode").innerHTML = t2 > 0 ? `${Q.episode.start_label}–${Q.episode.end_label} <small>· ${Q.episode.messages} msgs</small>` : "—";
+    $("q-forest").innerHTML = t3 > 0 ? `${Q.counts.key} <small>key</small> · ${Q.counts.support} <small>support</small>` : "—";
+    $("q-tokens").innerHTML = t3 > 0 ? `${fmt(Math.round(Q.tokens.forest * clamp(t3 / 0.8, 0, 1)))} <small>/ ${fmt(Q.tokens.budget)}</small>` : "—";
+    $("q-cost").innerHTML = `query-time: <b>${Q.cost.query_time_calls} pass</b> over ${Q.cost.query_time_messages} messages<br>write-time: <b>${fmt(Q.cost.write_time_calls)} calls</b>, ${fmt(Q.cost.write_time_merges)} merges`;
+  }
+  if (selNode && Math.floor(p) !== selDay) renderInspector();
+}
+
+/* ---------- inspector ---------- */
+const inspectorEl = $("inspector");
+let hoverNode = null, selNode = null, selMsg = null, selDay = -1, answerShown = false, compare = false;
+function hitTest(mx, my) {
+  const st = state; if (!st) return null;
+  let best = null, bestScore = Infinity;
+  const p = Math.min(st.P, C);
+  for (const n of st.nodes) {
+    if (n.birthF > p) continue;
+    const [x, y] = nodePos(n), d = Math.hypot(x - mx, y - my);
+    if (d > nodeRadius(n) + 7) continue;
+    const score = d - n.degNow * 0.05;
+    if (score < bestScore) { best = { node: n }; bestScore = score; }
+  }
+  if (stageT(3) > 0) for (const m of KEPT) {
+    const [x, y] = pol(m.angle, R * 0.979), d = Math.hypot(x - mx, y - my);
+    if (d <= 8 && d - 3 < bestScore) { best = { msg: m }; bestScore = d - 3; }
+  }
+  return best;
+}
+function canvasXY(e) { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+canvas.addEventListener("mousemove", e => { const h = hitTest(...canvasXY(e)); hoverNode = h && h.node || null; canvas.classList.toggle("hit", !!h); });
+canvas.addEventListener("mouseleave", () => { hoverNode = null; canvas.classList.remove("hit"); });
+canvas.addEventListener("click", e => {
+  const h = hitTest(...canvasXY(e));
+  if (h && h.node) selectNode(h.node); else if (h && h.msg) selectMsg(h.msg); else closeInspector();
+});
+function openInspector() { $("instrument").classList.add("inspecting"); inspectorEl.classList.add("show"); inspectorEl.scrollTop = 0; }
+function closeInspector() { selNode = null; selMsg = null; $("instrument").classList.remove("inspecting"); inspectorEl.classList.remove("show"); inspectorEl.innerHTML = ""; }
+function selectNode(n) { selNode = n; selMsg = null; selDay = -1; openInspector(); renderInspector(); }
+function selectMsg(m) { selMsg = m; selNode = null; openInspector(); renderMsg(m); }
+function esc(v) { return String(v).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+const closeBtn = `<button class="close" type="button" aria-label="Close">×</button>`;
+function msgMeta(m) {
+  const lab = Q.labels[m.id];
+  return `${lab ? `<i>${lab}</i> · ` : ""}${esc(who(m.who))} · ${dayLabel(m.day)} ${String(Math.floor((m.d % 1) * 24)).padStart(2, "0")}:${String(Math.round(((m.d % 1) * 24 % 1) * 60)).padStart(2, "0")} · ${m.id}`;
+}
+function renderInspector() {
+  const st = state, n = selNode; if (!n) return;
+  const p = Math.min(st.P, C), dayNow = Math.min(C - 1, Math.floor(p));
+  const born = n.birthF <= p;
+  const incident = st.links.filter(l => l.s === n || l.t === n).sort((a, b) => a.birthF - b.birthF);
+  const formed = incident.filter(l => l.born).length;
+  const visible = st.nodes.filter(m => m.birthF <= p).sort((a, b) => b.degNow - a.degNow);
+  const rank = visible.indexOf(n) + 1;
+  const days = [...n.apps].sort((a, b) => a - b);
+  const chips = days.slice(0, 18).map(i => `<span class="chip${i === dayNow ? " now" : ""}${i > p ? " later" : ""}">${esc(dayLabel(i))}</span>`).join("") + (days.length > 18 ? `<span class="chip">+${days.length - 18}</span>` : "");
+  const rows = incident.map(l => {
+    const other = l.s === n ? l.t : l.s, dir = l.s === n ? "→" : "←";
+    return `<li class="${l.born ? "" : "later"}"><span class="dir">${dir}</span><span><button type="button" class="link" data-id="${esc(other.id)}">${esc(other.name)}</button><span class="rel">${esc(l.label.replace(/_/g, " "))}</span></span><span class="ch">${esc(dayLabel(l.birth))}</span></li>`;
+  }).join("");
+  inspectorEl.innerHTML = closeBtn +
+    `<p class="eyebrow">${esc(n.label.replace(/_/g, " ").toLowerCase())} · ${esc(FAMILY[n.fam].label.toLowerCase())}</p>` +
+    `<h2>${esc(n.name)}</h2>` + (n.desc ? `<p class="desc">${esc(n.desc)}</p>` : "") +
+    `<dl class="facts"><dt>Born</dt><dd>${esc(dayLabel(n.birth))}</dd><dt>Named on</dt><dd>${days.length} day${days.length === 1 ? "" : "s"}</dd><dt>Chords</dt><dd>${formed} of ${incident.length} formed so far</dd>` +
+    (born && rank ? `<dt>Gravity</dt><dd>#${rank} of ${visible.length} stars on the dial</dd>` : `<dt>Status</dt><dd>not yet on the dial</dd>`) + `</dl>` +
+    `<div class="chips">${chips}</div>` + (born ? "" : `<button class="jump" type="button" data-jump="${n.birth}">Go to its first mention</button>`) +
+    `<h3>Chords (${incident.length})</h3><ul>${rows}</ul>`;
+  selDay = dayNow;
+}
+function renderMsg(m) {
+  const outs = LINKS.filter(l => l.a === m), ins = LINKS.filter(l => l.b === m);
+  const row = (l, other) => `<li class="msg"><div class="meta">${l.type} ${l.a === m ? "→" : "←"} ${esc(who(other.who))} · ${dayLabel(other.day)}</div><button type="button" class="link" data-msg="${other.id}">${esc(other.text)}</button></li>`;
+  inspectorEl.innerHTML = closeBtn +
+    `<p class="eyebrow">${msgMeta(m)}</p><p class="text">${esc(m.text)}</p>` +
+    `<dl class="facts"><dt>Topic</dt><dd>${esc(m.topic)}</dd><dt>Names</dt><dd>${m.ents.map(id => `<button type="button" class="link" data-id="${esc(id)}">${esc(who(id))}</button>`).join(", ")}</dd></dl>` +
+    (outs.length || ins.length ? `<h3>Links in the forest</h3><ul>${outs.map(l => row(l, l.b)).join("")}${ins.map(l => row(l, l.a)).join("")}</ul>` : "") +
+    `<button class="jump" type="button" data-answer="1">Back to the answer</button>`;
+}
+function showAnswer() {
+  openInspector();
+  const cites = Q.answer.citations.map(id => msgById.get(id)).map(m => `<li class="msg"><div class="meta">${msgMeta(m)}</div><button type="button" class="link" data-msg="${m.id}">${esc(m.text)}</button></li>`).join("");
+  inspectorEl.innerHTML = closeBtn +
+    `<p class="eyebrow">answer · from the forest · ${fmt(Q.tokens.forest)} of ${fmt(Q.tokens.budget)} tokens</p>` +
+    `<h2 class="q">${esc(Q.text)}</h2><p class="desc">${esc(Q.answer.text)}</p>` +
+    `<h3>Evidence (${Q.answer.citations.length} key messages)</h3><ul>${cites}</ul>` +
+    `<h3>How it was found</h3><dl class="facts"><dt>Seeds</dt><dd>${Q.seeds.length} BM25 hits, ${Q.episode.seeds_inside} inside the window</dd><dt>Window</dt><dd>${Q.episode.start_label} to ${Q.episode.end_label}, ${Q.episode.messages} messages</dd><dt>Labels</dt><dd>${Q.counts.key} key, ${Q.counts.support} support, ${Q.counts.irrelevant} dropped</dd><dt>Links</dt><dd>${LINKS.filter(l => l.type === "update").length} update, ${LINKS.filter(l => l.type === "expand").length} expand</dd><dt>Paid</dt><dd>one labelling pass over ${Q.cost.query_time_messages} messages, against ${fmt(Q.cost.write_time_calls)} extraction calls for the write-time graph</dd></dl>`;
+}
+inspectorEl.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.classList.contains("close")) { closeInspector(); return; }
+  if (b.dataset.jump !== undefined) { state.P = Math.min(C, Number(b.dataset.jump) + 0.999); setPlaying(false); syncScrub(); advanceModel(1); renderInspector(); return; }
+  if (b.dataset.answer) { selMsg = null; selNode = null; showAnswer(); return; }
+  if (b.dataset.msg) { const m = msgById.get(b.dataset.msg); if (m) selectMsg(m); return; }
+  if (b.dataset.id) { const m = state.nodesById.get(b.dataset.id); if (m) selectNode(m); }
+});
+
+/* ---------- transport ---------- */
+const scrub = $("scrub"), playBtn = $("play");
+const toScrub = P => P <= C ? (P / C) * 800 : 800 + ((P - C) / S) * 200;
+const fromScrub = v => v <= 800 ? (v / 800) * C : C + ((v - 800) / 200) * S;
+function setPlaying(on) {
+  state.playing = on;
+  if (on) { playAnchorMs = performance.now(); playAnchorP = state.P; }
+  playBtn.textContent = on ? "❚❚" : "▶";
+}
+playBtn.addEventListener("click", () => {
+  if (!state.playing && state.P >= C + S) { state.P = 0; answerShown = false; closeInspector(); }
+  setPlaying(!state.playing);
+});
+scrub.addEventListener("input", () => { state.P = fromScrub(Number(scrub.value)); setPlaying(false); if (state.P < C + 3) answerShown = false; });
+function syncScrub() { const v = toScrub(state.P); scrub.value = Math.round(v); scrub.style.setProperty("--fill", v / 10 + "%"); }
+setInterval(() => scrub.style.setProperty("--fill", toScrub(state.P) / 10 + "%"), 120);
+addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" && e.target.type !== "range") return;
+  if (e.code === "Escape") { closeInspector(); return; }
+  if (e.code === "Space") { e.preventDefault(); playBtn.click(); }
+  if (e.code === "ArrowRight") { state.P = Math.min(C + S, Math.floor(state.P) + 1); setPlaying(false); syncScrub(); }
+  if (e.code === "ArrowLeft") { state.P = Math.max(0, Math.ceil(state.P) - 1); setPlaying(false); syncScrub(); }
+});
+
+/* ---------- legend ---------- */
+function buildLegend() {
+  const el = $("legend"); el.innerHTML = "";
+  const row = (color, text, kind) => {
+    const r = document.createElement("div"); r.className = "row" + (kind === "keep" ? " keep" : "");
+    const dot = document.createElement("span");
+    if (kind === "dash") dot.className = "dash";
+    else { dot.className = "dot"; dot.style.background = color; dot.style.boxShadow = `0 0 6px ${color}`; }
+    const lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = text;
+    r.append(dot, lbl); el.append(r);
+  };
+  const fams = new Set(state.nodes.map(n => n.fam));
+  for (const [fam, def] of Object.entries(FAMILY)) if (fams.has(fam)) row(famColor(fam), def.label);
+  row(T.key, "Key message");
+  row(T.bright, "Seed or support message");
+  row(null, "Update link", "dash");
+  const hint = document.createElement("div"); hint.className = "row keep";
+  const hl = document.createElement("span"); hl.className = "lbl"; hl.textContent = "Click a star or a key message to open it";
+  hint.append(hl); el.append(hint);
+  const btn = document.createElement("button"); btn.type = "button"; btn.id = "compare";
+  btn.setAttribute("aria-pressed", "false"); btn.textContent = "Keep the write-time graph lit during the query";
+  btn.addEventListener("click", () => { compare = !compare; btn.setAttribute("aria-pressed", String(compare)); });
+  el.append(btn);
+}
+
+/* ---------- boot ---------- */
+state = buildModel();
+buildLegend();
+resize();
+$("demotag").textContent = `${DATA.metadata.demo_note} · ${fmt(DATA.metadata.total_messages)} messages, ${DATA.metadata.period}`;
+$("coda").insertAdjacentHTML("afterbegin", `${fmt(DATA.metadata.total_messages)} messages · ${DATA.metadata.total_entities} entities · ${DATA.metadata.total_relations} relations · busiest day ${DATA.metadata.busiest_day.label} (${DATA.metadata.busiest_day.count}) · `);
+syncScrub();
+if (POSTER) {
+  document.body.classList.add("poster"); $("instrument").classList.add("poster");
+  state.P = C + 3; for (let i = 0; i < 4; i++) advanceModel(1); resize(); syncScrub();
+  /* draw a few frames once the fonts are in, then stop the loop so a headless renderer sees an idle page */
+  document.fonts.ready.then(() => setTimeout(() => { cancelAnimationFrame(raf); draw(performance.now()); }, 600));
+} else if (reduceMotion) { state.P = C + S; advanceModel(1); syncScrub(); }
+else setTimeout(() => setPlaying(true), 400);
+lastMs = performance.now();
+raf = requestAnimationFrame(tick);
+</script>
